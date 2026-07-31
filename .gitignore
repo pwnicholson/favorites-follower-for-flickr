@@ -1,0 +1,22 @@
+# Local API Credentials
+config.js
+
+# Build Outputs & Bundles
+*.zip
+dist/
+build/
+
+# Dependency Directories
+node_modules/
+
+# Environment Files
+.env
+.env.local
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE Directories
+.vscode/
+.idea/
