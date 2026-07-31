@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Follow Favorites for Flickr",
+  "version": "1.0.0",
+  "description": "Aggregate and view favorite photos from selected Flickr users.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://api.flickr.com/*",
+    "https://*.staticflickr.com/*",
+    "https://*.flickr.com/*"
+  ],
+  "chrome_url_overrides": {
+    "newtab": "newtab/newtab.html"
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://*.flickr.com/photos/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
