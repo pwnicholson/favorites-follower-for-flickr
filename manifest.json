@@ -3,7 +3,7 @@
   "name": "Follow Favorites for Flickr",
   "version": "1.0.0",
   "description": "Aggregate and view favorite photos from selected Flickr users.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "identity"],
   "host_permissions": [
     "https://api.flickr.com/*",
     "https://*.staticflickr.com/*",
