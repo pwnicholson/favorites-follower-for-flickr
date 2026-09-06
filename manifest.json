@@ -9,9 +9,7 @@
     "https://*.staticflickr.com/*",
     "https://*.flickr.com/*"
   ],
-  "chrome_url_overrides": {
-    "newtab": "newtab/newtab.html"
-  },
+  "action": {},
   "options_page": "options/options.html",
   "content_scripts": [
     {
@@ -21,5 +19,11 @@
   ],
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["feed/feed.html", "feed/*"],
+      "matches": ["https://*.flickr.com/*", "http://*.flickr.com/*"]
+    }
+  ]
 }

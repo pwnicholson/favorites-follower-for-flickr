@@ -1,10 +1,9 @@
-// New Tab feed logic: fetch aggregated favorites, sort, paginate, and render
+// Favorites feed logic: fetch aggregated favorites, sort, paginate, and render
 (function(){
   const PER_PAGE = 50;
   let photos = [];
   let currentPage = 1;
   let totalPages = 1;
-
   const feedEl = document.getElementById('feed');
   const pageLabel = document.getElementById('pageLabel');
   const prevBtn = document.getElementById('prevPage');
@@ -27,21 +26,20 @@
 
   authBtn && authBtn.addEventListener('click', async ()=>{
     const res = await new Promise(r=>chrome.runtime.sendMessage({action:'startAuth'}, r));
-    if(res && res.success) {
-      showToast('Authorization successful');
-      ensureUI();
-    }else{
-      showToast('Authorization failed');
-    }
+    if(res && res.success) { showToast('Authorization successful'); ensureUI(); }
+    else showToast('Authorization failed');
   });
 
   function showToast(msg){
-    const t = document.createElement('div'); t.textContent = msg; t.style.position='fixed'; t.style.right='12px'; t.style.bottom='12px'; t.style.background='#222'; t.style.color='#fff'; t.style.padding='8px'; t.style.borderRadius='6px'; document.body.appendChild(t);
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;right:12px;bottom:12px;background:#222;color:#fff;padding:8px;border-radius:6px';
+    document.body.appendChild(t);
     setTimeout(()=>t.remove(),2500);
   }
 
   async function loadAndRender(){
-    feedEl.innerHTML = '<div>Loading…</div>';
+    feedEl.innerHTML = '<div>Loading...</div>';
     chrome.storage.sync.get(['followed_users','preferences'], async items=>{
       const users = items.followed_users || [];
       const prefs = items.preferences || {};
@@ -49,7 +47,6 @@
       photos = (resp && resp.photos) || [];
       applySort(prefs.sortBy || 'faved');
       currentPage = 1;
-      totalPages = Math.max(1, Math.ceil(photos.length / PER_PAGE));
       renderPage();
     });
   }
@@ -64,29 +61,28 @@
     feedEl.innerHTML = '';
     totalPages = Math.max(1, Math.ceil(photos.length / PER_PAGE));
     const start = (currentPage-1)*PER_PAGE;
-    const pagePhotos = photos.slice(start, start+PER_PAGE);
-    pagePhotos.forEach(p=>{
+    photos.slice(start, start+PER_PAGE).forEach(p=>{
       const card = document.createElement('div'); card.className='card';
       const img = document.createElement('img'); img.src = p.url_m || p.url_l || p.url_sq || '';
       const title = document.createElement('div'); title.textContent = p.title || '';
-      card.appendChild(img); card.appendChild(title);
-      feedEl.appendChild(card);
+      card.appendChild(img); card.appendChild(title); feedEl.appendChild(card);
     });
     pageLabel.textContent = `Page ${currentPage} of ${totalPages}`;
   }
 
   prevBtn.addEventListener('click', ()=>{ if(currentPage>1){currentPage--; renderPage();} });
   nextBtn.addEventListener('click', ()=>{ if(currentPage<totalPages){currentPage++; renderPage();} });
-
-  manageBtn.addEventListener('click', async ()=>{
+  manageBtn.addEventListener('click', ()=>{
     modal.classList.remove('hidden');
     chrome.storage.sync.get(['followed_users'], items=>{
       const users = items.followed_users || [];
       followingList.innerHTML = '';
       users.forEach(u=>{
-        const row = document.createElement('div'); row.style.display='flex'; row.style.alignItems='center'; row.style.justifyContent='space-between'; row.style.padding='6px 0';
-        const left = document.createElement('div'); left.textContent = (u.realname||u.username);
-        const btn = document.createElement('button'); btn.textContent='Unfollow'; btn.addEventListener('click', ()=>{
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 0';
+        const left = document.createElement('div'); left.textContent = u.realname || u.username;
+        const btn = document.createElement('button'); btn.textContent = 'Unfollow';
+        btn.addEventListener('click', ()=>{
           const next = users.filter(x=>x.nsid!==u.nsid);
           chrome.storage.sync.set({followed_users: next}, ()=>{ loadAndRender(); modal.classList.add('hidden'); });
         });
@@ -94,10 +90,7 @@
       });
     });
   });
-
   document.getElementById('closeModal').addEventListener('click', ()=>modal.classList.add('hidden'));
-
-  // init
   ensureUI();
   loadAndRender();
 })();

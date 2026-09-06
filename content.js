@@ -39,6 +39,15 @@
       btn.className = 'ff-follow-favs';
       followContainer.parentNode.insertBefore(btn, followContainer.nextSibling);
 
+      const feedLink = document.createElement('a');
+      feedLink.href = chrome.runtime.getURL('feed/feed.html');
+      feedLink.target = '_blank';
+      feedLink.rel = 'noopener noreferrer';
+      feedLink.textContent = 'Favorites Feed';
+      feedLink.style.marginLeft = '8px';
+      feedLink.id = 'ff-favorites-feed-link';
+      followContainer.parentNode.insertBefore(feedLink, btn.nextSibling);
+
       let username = await getProfileUsername();
       if(!username) username = '';
 

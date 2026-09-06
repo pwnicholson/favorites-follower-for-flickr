@@ -1,5 +1,9 @@
 // Background service worker: OAuth1.0a helpers, Flickr API calls, message handlers
 (async function(){
+  chrome.action.onClicked.addListener(() => {
+    chrome.tabs.create({url: chrome.runtime.getURL('feed/feed.html')});
+  });
+
   // util helpers
   function pctEnc(s){
     return encodeURIComponent(s).replace(/[!'()*]/g, c => '%'+c.charCodeAt(0).toString(16).toUpperCase());
