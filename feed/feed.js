@@ -21,13 +21,17 @@
 
   async function ensureUI(){
     const authorized = await getAuthStatus();
-    if(!authorized) authBanner.classList.remove('hidden'); else authBanner.classList.add('hidden');
+    if(authorized){
+      authBanner.classList.add('hidden');
+    }else{
+      authBanner.classList.remove('hidden');
+    }
   }
 
   authBtn && authBtn.addEventListener('click', async ()=>{
     const res = await new Promise(r=>chrome.runtime.sendMessage({action:'startAuth'}, r));
     if(res && res.success) { showToast('Authorization successful'); ensureUI(); }
-    else showToast('Authorization failed');
+    else showToast(res && res.error ? res.error : 'Authorization failed');
   });
 
   function showToast(msg){

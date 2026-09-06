@@ -1,3 +1,4 @@
+console.log('Background worker active');
 // Background service worker: OAuth1.0a helpers, Flickr API calls, message handlers
 (async function(){
   chrome.action.onClicked.addListener(() => {
@@ -78,13 +79,15 @@
     const {key, secret} = await getApiKeys();
     if(!key || !secret) throw new Error('API key/secret missing');
     const requestUrl = 'https://www.flickr.com/services/oauth/request_token';
+    const oauthCallback = chrome.identity.getRedirectURL();
+    console.info('Flickr OAuth callback URL:', oauthCallback);
     const oauth = {
       oauth_consumer_key: key,
       oauth_nonce: genNonce(),
       oauth_signature_method: 'HMAC-SHA1',
       oauth_timestamp: Math.floor(Date.now()/1000).toString(),
       oauth_version: '1.0',
-      oauth_callback: chrome.identity.getRedirectURL()
+      oauth_callback: oauthCallback
     };
     const sig = await oauthSign('POST', requestUrl, oauth, secret);
     oauth.oauth_signature = sig;
@@ -101,7 +104,12 @@
     const authUrl = `https://www.flickr.com/services/oauth/authorize?oauth_token=${req.oauth_token}&perms=read`;
     return new Promise((resolve,reject)=>{
       chrome.identity.launchWebAuthFlow({url: authUrl, interactive: true}, async redirectUrl => {
-        if(chrome.runtime.lastError || !redirectUrl) return reject(chrome.runtime.lastError || new Error('Auth cancelled'));
+        const lastError = chrome.runtime.lastError;
+        if(lastError){
+          console.error('Flickr authorization failed:', lastError);
+          return reject(lastError);
+        }
+        if(!redirectUrl) return reject(new Error('Auth cancelled'));
         const u = new URL(redirectUrl);
         const oauth_token = u.searchParams.get('oauth_token');
         const oauth_verifier = u.searchParams.get('oauth_verifier');
@@ -230,7 +238,7 @@
           sendResponse({error:'unknown action'});
         }
       }catch(err){
-        sendResponse({error:err.message});
+        sendResponse({success:false, error:err.message});
       }
     })();
     return true; // keep channel open
