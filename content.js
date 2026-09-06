@@ -108,17 +108,18 @@
           });
           const list = items.followed_users || [];
           const found = list.find(u=>u.username === username || u.nsid === username);
-          const next = found
-            ? list.filter(u=>u.username !== username && u.nsid !== username)
-            : [...list, {nsid: username, username, realname: username}];
-
-          if(!found){
-            try{
-              const resp = await new Promise(resolve=>chrome.runtime.sendMessage({action:'resolveUsername', username}, resolve));
-              if(resp && resp.nsid) next[next.length - 1].nsid = resp.nsid;
-            }catch(error){
-              console.warn('Could not resolve Flickr username; saving the URL identifier:', error);
-            }
+          let next;
+          if(found){
+            next = list.filter(u=>u.username !== username && u.nsid !== username);
+          }else{
+            const resp = await new Promise((resolve, reject)=>{
+              chrome.runtime.sendMessage({action:'resolveUsername', username}, result=>{
+                if(chrome.runtime.lastError) reject(chrome.runtime.lastError);
+                else resolve(result);
+              });
+            });
+            if(!resp || !resp.nsid) throw new Error(resp && resp.error || 'Could not resolve Flickr username to an NSID');
+            next = [...list, {nsid: resp.nsid, username, realname: username}];
           }
 
           await new Promise((resolve, reject)=>{
