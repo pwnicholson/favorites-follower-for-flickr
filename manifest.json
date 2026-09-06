@@ -13,7 +13,11 @@
   "options_page": "options/options.html",
   "content_scripts": [
     {
-      "matches": ["https://*.flickr.com/photos/*"],
+      "matches": [
+        "https://*.flickr.com/people/*",
+        "https://*.flickr.com/photos/*",
+        "https://*.flickr.com/photos/*/favorites"
+      ],
       "js": ["content.js"]
     }
   ],

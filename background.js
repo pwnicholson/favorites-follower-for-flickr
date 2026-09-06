@@ -107,16 +107,34 @@ console.log('Background worker active');
         const lastError = chrome.runtime.lastError;
         if(lastError){
           console.error('Flickr authorization failed:', lastError);
+          setDebugStatus(`Authorization failed: ${lastError.message || lastError}`);
           return reject(lastError);
         }
-        if(!redirectUrl) return reject(new Error('Auth cancelled'));
+        if(!redirectUrl){
+          const error = new Error('Auth cancelled');
+          setDebugStatus(`Authorization failed: ${error.message}`);
+          return reject(error);
+        }
         const u = new URL(redirectUrl);
         const oauth_token = u.searchParams.get('oauth_token');
         const oauth_verifier = u.searchParams.get('oauth_verifier');
         try{
           const tokens = await getAccessToken(oauth_token, oauth_verifier);
-          chrome.storage.sync.set({oauth_token: tokens.oauth_token, oauth_token_secret: tokens.oauth_token_secret}, ()=>resolve(tokens));
-        }catch(e){reject(e)}
+          chrome.storage.sync.set({oauth_token: tokens.oauth_token, oauth_token_secret: tokens.oauth_token_secret}, ()=>{
+            if(chrome.runtime.lastError){
+              console.error('OAuth token storage failed:', chrome.runtime.lastError);
+              setDebugStatus(`OAuth token storage failed: ${chrome.runtime.lastError.message}`);
+              reject(chrome.runtime.lastError);
+              return;
+            }
+            console.log('OAuth token stored successfully');
+            setDebugStatus('OAuth token stored successfully');
+            resolve(tokens);
+          });
+        }catch(e){
+          setDebugStatus(`Authorization failed: ${e.message}`);
+          reject(e);
+        }
       });
     });
   }
@@ -140,6 +158,14 @@ console.log('Background worker active');
     const text = await resp.text();
     const parsed = Object.fromEntries(text.split('&').map(p=>p.split('=')));
     return parsed; // oauth_token, oauth_token_secret, user_nsid, username, fullname
+  }
+
+  function setDebugStatus(status){
+    chrome.storage.sync.set({debug_status: status}, ()=>{
+      if(chrome.runtime.lastError){
+        console.error('OAuth debug status storage failed:', chrome.runtime.lastError);
+      }
+    });
   }
 
   async function signedFlickrCall(method, params={}, useAuth=true){
@@ -196,6 +222,7 @@ console.log('Background worker active');
     const safe_map = {all:'1',safe:'1'}; // placeholder; Flickr uses safe_search param on search not favorites API
     const params = {user_id: nsid, per_page: per_page.toString(), extras};
     const res = await signedFlickrCall('flickr.favorites.getPublicList', params, false);
+    if(res && res.stat === 'fail') throw new Error(res.message || 'Flickr favorites request failed');
     if(res && res.photos && res.photos.photo) return res.photos.photo;
     return [];
   }
@@ -213,21 +240,23 @@ console.log('Background worker active');
         }else if(msg.action === 'fetchAggregatedFavorites'){
           const users = msg.users || [];
           const per_user = msg.per_user || 200;
-          const all = [];
-          for(const u of users){
-            try{
-              const photos = await fetchFavoritesForUser(u.nsid, per_user);
-              photos.forEach(p=>{
-                p._from_nsid = u.nsid;
-                all.push(p);
-              });
-            }catch(e){/* ignore per-user failures */}
-          }
+          const results = await Promise.allSettled(users.map(async u=>{
+            const nsid = u.nsid && u.nsid !== u.username
+              ? u.nsid
+              : await resolveUsername(u.username || u.nsid);
+            const photos = await fetchFavoritesForUser(nsid, per_user);
+            photos.forEach(p=>{ p._from_nsid = nsid; });
+            return {username:u.username || nsid, photos};
+          }));
+          const all = results.flatMap(result=>result.status === 'fulfilled' ? result.value.photos : []);
+          const errors = results
+            .filter(result=>result.status === 'rejected')
+            .map(result=>result.reason && result.reason.message || 'Unknown Flickr request failure');
           // dedupe by id
           const map = new Map();
           for(const p of all) map.set(p.id, p);
           const dedup = Array.from(map.values());
-          sendResponse({photos: dedup});
+          sendResponse({photos: dedup, errors});
         }else if(msg.action === 'getAuthStatus'){
           chrome.storage.sync.get(['oauth_token'], items => sendResponse({authorized: !!items.oauth_token}));
           return;
@@ -238,6 +267,7 @@ console.log('Background worker active');
           sendResponse({error:'unknown action'});
         }
       }catch(err){
+        if(msg.action === 'startAuth') setDebugStatus(`Authorization failed: ${err.message}`);
         sendResponse({success:false, error:err.message});
       }
     })();

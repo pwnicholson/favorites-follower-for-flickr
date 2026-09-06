@@ -4,6 +4,8 @@ body{margin:0;font-family:Segoe UI,Arial;background:var(--bg);color:var(--fg)}
 header{padding:12px;border-bottom:1px solid #ccc;display:flex;flex-direction:column}
 .controls{display:flex;gap:12px;align-items:center}
 .feed{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;padding:12px}
+.feed[data-size="small"]{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.feed[data-size="large"]{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
 .card{background:var(--card-bg);padding:8px;border-radius:6px}
 .card img{width:100%;height:auto;display:block}
 .banner{background:#fffae6;padding:8px;border-radius:6px;margin-bottom:8px}
@@ -12,3 +14,5 @@ header{padding:12px;border-bottom:1px solid #ccc;display:flex;flex-direction:col
 .modal.hidden{display:none}
 .modal-content{background:var(--bg);padding:16px;border-radius:8px;max-width:600px;width:100%}
 footer{display:flex;justify-content:center;gap:12px;padding:12px;border-top:1px solid #ddd}
+html[data-theme="light"]{--bg:#fff;--fg:#111;--card-bg:#f7f7f7}
+html[data-theme="dark"]{--bg:#111;--fg:#eee;--card-bg:#222}

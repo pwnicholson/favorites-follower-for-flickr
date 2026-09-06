@@ -1,17 +1,11 @@
 // Content script: Inject "Follow Favorites" button on Flickr photo/profile pages
 (function(){
-  function waitFor(selector, timeout=5000){
-    return new Promise((resolve,reject)=>{
-      const start = Date.now();
-      const iv = setInterval(()=>{
-        const el = document.querySelector(selector);
-        if(el){ clearInterval(iv); resolve(el); }
-        if(Date.now()-start>timeout){ clearInterval(iv); reject(new Error('timeout')); }
-      }, 300);
-    });
-  }
+  let injectedPageKey = '';
 
-  async function getProfileUsername(){
+  function getProfileUsername(){
+    const pathMatch = window.location.pathname.match(/^\/(?:people|photos)\/([^/]+)/);
+    if(pathMatch) return decodeURIComponent(pathMatch[1]);
+
     // try meta or link patterns
     const el = document.querySelector('a.owner-name, a.title, a[href*="/photos/"]');
     if(el) {
@@ -24,20 +18,48 @@
     }
     // fallback to global username var
     if(window._model && window._model.person && window._model.person.username) return window._model.person.username._content;
-    return null;
+    return '';
   }
 
-  async function ensureButton(){
+  function ensureButton(){
     try{
-      const followContainer = await waitFor('button.follow, .follow-bundle, .profile-follow');
-      // create our button
-      if(document.getElementById('ff-follow-favs-btn')) return;
+      const followSelector = [
+        '.action-button-text.follow',
+        '.action-button-text.following',
+        '.action-button-text.unfollow',
+        'button.follow',
+        '.follow-bundle',
+        '.profile-follow',
+        '.follow-button',
+        '.follow-button-container',
+        '[data-testid="follow-button"]',
+        '[data-testid*="follow"]',
+        'button[aria-label*="Follow"]',
+        'button[title*="Follow"]'
+      ].join(', ');
+      const pageKey = `${window.location.pathname}${window.location.search}`;
+      const existingButton = document.getElementById('ff-follow-favs-btn');
+      if(existingButton && injectedPageKey === pageKey) return;
+      if(existingButton) existingButton.remove();
+      const existingFeedLink = document.getElementById('ff-favorites-feed-link');
+      if(existingFeedLink) existingFeedLink.remove();
+      const followText = document.querySelector(followSelector);
+      const followContainer = followText && (followText.closest('button, a, [role="button"]') || followText);
+      const insertionParent = followContainer && followContainer.parentNode;
+      const username = getProfileUsername();
+      if(!username){
+        console.error('Unable to determine Flickr username from URL:', window.location.pathname);
+        return;
+      }
+      injectedPageKey = pageKey;
+
       const btn = document.createElement('button');
       btn.id = 'ff-follow-favs-btn';
+      btn.type = 'button';
       btn.style.marginLeft = '8px';
-      btn.textContent = 'Follow Favorites';
-      btn.className = 'ff-follow-favs';
-      followContainer.parentNode.insertBefore(btn, followContainer.nextSibling);
+      btn.className = 'action-button-text ff-follow-favs';
+      if(insertionParent) insertionParent.insertBefore(btn, followContainer.nextSibling);
+      else document.body.appendChild(btn);
 
       const feedLink = document.createElement('a');
       feedLink.href = chrome.runtime.getURL('feed/feed.html');
@@ -46,48 +68,109 @@
       feedLink.textContent = 'Favorites Feed';
       feedLink.style.marginLeft = '8px';
       feedLink.id = 'ff-favorites-feed-link';
-      followContainer.parentNode.insertBefore(feedLink, btn.nextSibling);
+      btn.insertAdjacentElement('afterend', feedLink);
 
-      let username = await getProfileUsername();
-      if(!username) username = '';
+      let followingFavorites = false;
 
       async function refreshState(){
         chrome.storage.sync.get(['followed_users'], items=>{
           const list = items.followed_users || [];
-          const found = list.find(u=>u.username === username);
-          if(found) btn.textContent = 'Unfollow Favorites'; else btn.textContent = 'Follow Favorites';
+          followingFavorites = !!list.find(u=>u.username === username || u.nsid === username);
+          btn.classList.remove('follow', 'following', 'unfollow');
+          btn.classList.add(followingFavorites ? 'following' : 'follow');
+          btn.textContent = followingFavorites ? 'Following Favorites' : 'Follow Favorites';
         });
       }
 
+      btn.addEventListener('mouseenter', ()=>{
+        if(followingFavorites){
+          btn.classList.remove('following');
+          btn.classList.add('unfollow');
+          btn.textContent = 'Unfollow Favorites';
+        }
+      });
+      btn.addEventListener('mouseleave', ()=>{
+        if(followingFavorites){
+          btn.classList.remove('unfollow');
+          btn.classList.add('following');
+          btn.textContent = 'Following Favorites';
+        }
+      });
+
       btn.addEventListener('click', async ()=>{
         btn.disabled = true;
-        chrome.storage.sync.get(['followed_users'], async items=>{
+        try{
+          const items = await new Promise((resolve, reject)=>{
+            chrome.storage.sync.get(['followed_users'], result=>{
+              if(chrome.runtime.lastError) reject(chrome.runtime.lastError);
+              else resolve(result);
+            });
+          });
           const list = items.followed_users || [];
-          const found = list.find(u=>u.username === username);
-          if(found){
-            const next = list.filter(u=>u.username !== username);
-            chrome.storage.sync.set({followed_users: next}, ()=>{ btn.disabled=false; refreshState(); });
-          }else{
-            // resolve username -> nsid via background
-            const resp = await new Promise(r=>chrome.runtime.sendMessage({action:'resolveUsername', username}, r));
-            if(resp && resp.nsid){
-              list.push({nsid: resp.nsid, username, realname: username});
-              chrome.storage.sync.set({followed_users: list}, ()=>{ btn.disabled=false; refreshState(); });
-            }else{
-              btn.disabled=false; refreshState();
+          const found = list.find(u=>u.username === username || u.nsid === username);
+          const next = found
+            ? list.filter(u=>u.username !== username && u.nsid !== username)
+            : [...list, {nsid: username, username, realname: username}];
+
+          if(!found){
+            try{
+              const resp = await new Promise(resolve=>chrome.runtime.sendMessage({action:'resolveUsername', username}, resolve));
+              if(resp && resp.nsid) next[next.length - 1].nsid = resp.nsid;
+            }catch(error){
+              console.warn('Could not resolve Flickr username; saving the URL identifier:', error);
             }
           }
-        });
+
+          await new Promise((resolve, reject)=>{
+            chrome.storage.sync.set({followed_users: next}, ()=>{
+              if(chrome.runtime.lastError) reject(chrome.runtime.lastError);
+              else resolve();
+            });
+          });
+          refreshState();
+        }catch(error){
+          console.error('Unable to update followed Flickr users:', error);
+        }finally{
+          btn.disabled = false;
+        }
       });
 
       refreshState();
       // react to external changes
       chrome.storage.onChanged.addListener(changes=>{ if(changes.followed_users) refreshState(); });
-    }catch(e){ /* ignore */ }
+    }catch(e){
+      console.error('Unable to add Follow Favorites control:', e);
+    }
   }
 
   // kick off
   ensureButton();
-  // also try again on navigation
-  document.addEventListener('pjax:end', ensureButton, true);
+
+  let scheduled = false;
+  function scheduleEnsureButton(){
+    if(scheduled) return;
+    scheduled = true;
+    setTimeout(()=>{
+      scheduled = false;
+      ensureButton();
+    }, 0);
+  }
+
+  const originalPushState = history.pushState;
+  history.pushState = function(){
+    const result = originalPushState.apply(this, arguments);
+    scheduleEnsureButton();
+    return result;
+  };
+  const originalReplaceState = history.replaceState;
+  history.replaceState = function(){
+    const result = originalReplaceState.apply(this, arguments);
+    scheduleEnsureButton();
+    return result;
+  };
+  window.addEventListener('popstate', scheduleEnsureButton);
+  document.addEventListener('pjax:end', scheduleEnsureButton, true);
+
+  const observer = new MutationObserver(scheduleEnsureButton);
+  observer.observe(document.documentElement, {childList:true, subtree:true});
 })();

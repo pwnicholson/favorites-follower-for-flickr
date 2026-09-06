@@ -13,6 +13,13 @@
   const manageBtn = document.getElementById('manageFollowing');
   const modal = document.getElementById('modal');
   const followingList = document.getElementById('followingList');
+  const sizeSelect = document.getElementById('sizeSelect');
+  const themeSelect = document.getElementById('themeSelect');
+  const sortSelect = document.getElementById('sortSelect');
+  const root = document.documentElement;
+  let displaySize = sizeSelect.value;
+  let theme = themeSelect.value;
+  let sortBy = sortSelect.value;
 
   async function getAuthStatus(){
     const resp = await new Promise(r=>chrome.runtime.sendMessage({action:'getAuthStatus'}, r));
@@ -20,18 +27,33 @@
   }
 
   async function ensureUI(){
-    const authorized = await getAuthStatus();
+    const oauthToken = await new Promise(resolve=>{
+      chrome.storage.sync.get(['oauth_token'], items=>resolve(items.oauth_token));
+    });
+    const authorized = !!oauthToken;
+    if(!authBanner){
+      console.error('Authorization banner element #authBanner was not found');
+      return;
+    }
     if(authorized){
+      authBanner.style.display = 'none';
       authBanner.classList.add('hidden');
+      console.assert(authBanner.style.display === 'none', 'Authorization banner display was not set to none');
+      console.assert(authBanner.classList.contains('hidden'), 'Authorization banner hidden class was not added');
     }else{
       authBanner.classList.remove('hidden');
+      authBanner.style.display = '';
     }
   }
 
   authBtn && authBtn.addEventListener('click', async ()=>{
     const res = await new Promise(r=>chrome.runtime.sendMessage({action:'startAuth'}, r));
-    if(res && res.success) { showToast('Authorization successful'); ensureUI(); }
+    if(res && res.success) { showToast('Authorization successful'); await ensureUI(); }
     else showToast(res && res.error ? res.error : 'Authorization failed');
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName)=>{
+    if(areaName === 'sync' && changes.oauth_token) ensureUI();
   });
 
   function showToast(msg){
@@ -42,14 +64,73 @@
     setTimeout(()=>t.remove(),2500);
   }
 
+  function showDebugStatus(){
+    chrome.storage.sync.get(['debug_status'], items=>{
+      if(items.debug_status) showToast(items.debug_status);
+    });
+  }
+
+  function applyPreferences(){
+    feedEl.dataset.size = displaySize;
+    if(theme === 'system') root.removeAttribute('data-theme');
+    else root.dataset.theme = theme;
+    sizeSelect.value = displaySize;
+    themeSelect.value = theme;
+    sortSelect.value = sortBy;
+  }
+
+  function savePreferences(){
+    chrome.storage.sync.set({preferences:{size:displaySize, theme, sortBy}});
+  }
+
+  sizeSelect.addEventListener('change', ()=>{
+    displaySize = sizeSelect.value;
+    applyPreferences();
+    savePreferences();
+    renderPage();
+  });
+  themeSelect.addEventListener('change', ()=>{
+    theme = themeSelect.value;
+    applyPreferences();
+    savePreferences();
+  });
+  sortSelect.addEventListener('change', ()=>{
+    sortBy = sortSelect.value;
+    applyPreferences();
+    savePreferences();
+    applySort(sortBy);
+    renderPage();
+  });
+
+  function fetchFavoritesForUser(user){
+    return new Promise((resolve, reject)=>{
+      chrome.runtime.sendMessage({action:'fetchAggregatedFavorites', users:[user], per_user:200}, response=>{
+        if(chrome.runtime.lastError) reject(chrome.runtime.lastError);
+        else if(!response || response.error) reject(new Error(response && response.error || 'Could not fetch favorites'));
+        else if(response.errors && response.errors.length) reject(new Error(response.errors.join('; ')));
+        else resolve(response.photos || []);
+      });
+    });
+  }
+
   async function loadAndRender(){
     feedEl.innerHTML = '<div>Loading...</div>';
     chrome.storage.sync.get(['followed_users','preferences'], async items=>{
       const users = items.followed_users || [];
       const prefs = items.preferences || {};
-      const resp = await new Promise(r=>chrome.runtime.sendMessage({action:'fetchAggregatedFavorites', users, per_user:200}, r));
-      photos = (resp && resp.photos) || [];
-      applySort(prefs.sortBy || 'faved');
+      displaySize = prefs.size || displaySize;
+      theme = prefs.theme || theme;
+      sortBy = prefs.sortBy || sortBy;
+      applyPreferences();
+      const results = await Promise.allSettled(users.map(fetchFavoritesForUser));
+      const allPhotos = results.flatMap(result=>result.status === 'fulfilled' ? result.value : []);
+      const photoMap = new Map();
+      allPhotos.forEach(photo=>{ if(photo && photo.id) photoMap.set(photo.id, photo); });
+      photos = Array.from(photoMap.values());
+      const failedUsers = results.filter(result=>result.status === 'rejected');
+      failedUsers.forEach(result=>console.warn('Could not load one followed user:', result.reason));
+      if(failedUsers.length) showToast(`Could not load ${failedUsers.length} followed user${failedUsers.length === 1 ? '' : 's'}`);
+      applySort(sortBy);
       currentPage = 1;
       renderPage();
     });
@@ -87,7 +168,7 @@
         const left = document.createElement('div'); left.textContent = u.realname || u.username;
         const btn = document.createElement('button'); btn.textContent = 'Unfollow';
         btn.addEventListener('click', ()=>{
-          const next = users.filter(x=>x.nsid!==u.nsid);
+          const next = users.filter(x=>x.nsid!==u.nsid && x.username!==u.username);
           chrome.storage.sync.set({followed_users: next}, ()=>{ loadAndRender(); modal.classList.add('hidden'); });
         });
         row.appendChild(left); row.appendChild(btn); followingList.appendChild(row);
@@ -95,6 +176,7 @@
     });
   });
   document.getElementById('closeModal').addEventListener('click', ()=>modal.classList.add('hidden'));
+  showDebugStatus();
   ensureUI();
   loadAndRender();
 })();
